@@ -1,0 +1,99 @@
+name: Check PR Commits
+
+on:
+  workflow_call:
+    secrets: {}
+
+permissions:
+  pull-requests: write
+
+jobs:
+  validate-commits:
+    name: Validar historial de commits
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar langdetect
+        run: pip install --quiet langdetect
+
+      - name: Obtener commits del PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr view "${PR_URL}" --json commits > commits_data.json
+
+      - name: Validar commits
+        id: validate
+        run: |
+          cat << 'PYEOF' > validate.py
+          import json, os, re, sys
+          from langdetect import detect, DetectorFactory, LangDetectException
+
+          DetectorFactory.seed = 0
+          CONVENTIONAL_PATTERN = re.compile(
+              r"^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)"
+              r"(\([a-zA-Z0-9_-]+\))?: (.+)$"
+          )
+          MIN_CHARS = 12
+
+          def is_english(text):
+              text = text.strip()
+              if len(text) < MIN_CHARS: return True
+              try: return detect(text) == "en"
+              except LangDetectException: return True
+
+          with open("commits_data.json", encoding="utf-8") as f:
+              data = json.load(f)
+
+          commits = [c["messageHeadline"] for c in data.get("commits", [])]
+          errors = []
+
+          print("Revisando el historial de commits:")
+          for msg in commits:
+              print(f"Evaluando: '{msg}'")
+              
+              # MEJORA: Ignorar commits de Merge automáticos de Git y GitHub
+              if msg.startswith("Merge branch") or msg.startswith("Merge pull request"):
+                  print("  -> Ignorado (Commit de merge detectado)")
+                  continue
+
+              match = CONVENTIONAL_PATTERN.match(msg.strip())
+              if not match:
+                  errors.append(f"Formato inválido: '{msg}'")
+                  continue
+              if not is_english(match.group(3)):
+                  errors.append(f"No está en inglés: '{msg}'")
+
+          github_output = os.environ["GITHUB_OUTPUT"]
+          with open(github_output, "a", encoding="utf-8") as gh_out:
+              gh_out.write(f"valid={'false' if errors else 'true'}\n")
+
+          if errors:
+              with open("errors.txt", "w", encoding="utf-8") as ef:
+                  ef.write("\n".join(f"- {e}" for e in errors))
+              print("\n❌ Errores en los commits.")
+          else:
+              print("\n✅ Todos los commits cumplen el estándar.")
+          PYEOF
+          python validate.py
+
+      - name: Comentar y cerrar PR
+        if: steps.validate.outputs.valid == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          {
+            echo "❌ **Pull Request rechazado (Commits)**"
+            echo ""
+            cat errors.txt
+            echo ""
+            echo "Corrige el historial (ej. \`git rebase -i\`), actualiza la rama con \`git push -f\` y haz clic en **Reopen Pull Request**."
+          } > comment.md
+          gh pr comment "${PR_URL}" --body-file comment.md
+          gh pr close "${PR_URL}"
+          exit 1
