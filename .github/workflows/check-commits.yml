@@ -8,7 +8,7 @@ permissions:
   pull-requests: write
 
 jobs:
-  validate-commits:
+  check-commits:
     name: Validate commit history
     runs-on: ubuntu-latest
     steps:

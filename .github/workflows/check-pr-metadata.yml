@@ -8,7 +8,7 @@ permissions:
   pull-requests: write
 
 jobs:
-  validate-pr:
+  check-pr-metadata:
     name: Validate PR title and description
     runs-on: ubuntu-latest
     steps:
