@@ -39,12 +39,16 @@ jobs:
               r"(\([a-zA-Z0-9_-]+\))?: (.+)$"
           )
           MIN_CHARS = 12
-
           def is_english(text):
-              text = text.strip()
-              if len(text) < MIN_CHARS: return True
-              try: return detect(text) == "en"
-              except LangDetectException: return True
+            # Mantiene solo las letras del alfabeto (elimina números y símbolos para el análisis)
+              clean_text = re.sub(r'[^a-zA-Z\s]', '', text).strip()
+                  
+              if len(clean_text) < MIN_CHARS: 
+                return True
+              try: 
+                return detect(clean_text) == "en"
+              except LangDetectException: 
+                return True
 
           with open("commits_data.json", encoding="utf-8") as f:
               data = json.load(f)
