@@ -81,20 +81,20 @@ jobs:
           PYEOF
           python validate.py
 
-      - name: Comentar errores en los commits
-      if: steps.validate.outputs.valid == 'false'
-      env:
-        GH_TOKEN: ${{ github.token }}
-        PR_URL: ${{ github.event.pull_request.html_url }}
-      run: |
-        {
-          echo "❌ **Se encontraron errores en el historial de Commits**"
-          echo ""
-          cat errors.txt
-          echo ""
-          echo "Por favor, corrige el historial (puedes usar \`git rebase -i\`) y actualiza la rama con \`git push -f\`. El flujo de validación se volverá a ejecutar automáticamente."
-        } > comment.md
-        gh pr comment "${PR_URL}" --body-file comment.md
+      - name: Comentar errores en el PR
+        if: steps.validate.outputs.valid == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          {
+            echo "❌ **Se encontraron errores en el Pull Request**"
+            echo ""
+            cat errors.txt
+            echo ""
+            echo "Por favor, corrige el título o la descripción para que cumplan con el estándar en inglés. El bot volverá a evaluar los cambios automáticamente."
+          } > comment.md
+          gh pr comment "${PR_URL}" --body-file comment.md
         
-        # Forzar fallo del workflow para bloquear el PR sin cerrarlo
-        exit 1
+          # Forzar fallo del workflow para bloquear el PR sin cerrarlo
+          exit 1
