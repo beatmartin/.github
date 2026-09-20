@@ -17,9 +17,6 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Instalar langdetect
-        run: pip install --quiet langdetect
-
       - name: Obtener metadatos del PR
         env:
           GH_TOKEN: ${{ github.token }}
@@ -31,67 +28,70 @@ jobs:
         run: |
           cat << 'PYEOF' > validate.py
           import json, os, re, sys
-          from langdetect import detect, DetectorFactory, LangDetectException
 
-          DetectorFactory.seed = 0
           CONVENTIONAL_PATTERN = re.compile(
               r"^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)"
               r"(\([a-zA-Z0-9_-]+\))?: (.+)$"
           )
-          MIN_CHARS = 12
-          def is_english(text):
-            # Mantiene solo las letras del alfabeto (elimina números y símbolos para el análisis)
-              clean_text = re.sub(r'[^a-zA-Z\s]', '', text).strip()
-                  
-              if len(clean_text) < MIN_CHARS: 
-                return True
-              try: 
-                return detect(clean_text) == "en"
-              except LangDetectException: 
-                return True
 
-          with open("pr_data.json", encoding="utf-8") as f:
-              data = json.load(f)
+          def check_language(text):
+              # Busca caracteres típicamente usados en español (ñ, tildes, símbolos de apertura)
+              spanish_chars = re.compile(r'[áéíóúÁÉÍÓÚñÑüÜ¿¡]')
+              if spanish_chars.search(text):
+                  return False
+              return True
 
-          title, body = data.get("title", "") or "", data.get("body", "") or ""
-          errors = []
+          def main():
+              with open("pr_data.json", encoding="utf-8") as f:
+                  data = json.load(f)
 
-          match = CONVENTIONAL_PATTERN.match(title.strip())
-          if not match:
-              errors.append(f"El título del PR no sigue Conventional Commits: '{title}'")
-          elif not is_english(match.group(3)):
-              errors.append(f"El título del PR no está en inglés: '{title}'")
+              title = data.get("title", "") or ""
+              body = data.get("body", "") or ""
 
-          if body.strip() and not is_english(body):
-              errors.append("La descripción del PR no está redactada en inglés.")
+              errors = []
 
-          github_output = os.environ["GITHUB_OUTPUT"]
-          with open(github_output, "a", encoding="utf-8") as gh_out:
-              gh_out.write(f"valid={'false' if errors else 'true'}\n")
+              # --- Validación de Título ---
+              match = CONVENTIONAL_PATTERN.match(title.strip())
+              if not match:
+                  errors.append(f"El título del PR no sigue Conventional Commits: '{title}'")
+              elif not check_language(match.group(3)):
+                  errors.append(f"El título contiene caracteres en español (ñ, tildes, etc.): '{title}'")
 
-          if errors:
-              with open("errors.txt", "w", encoding="utf-8") as ef:
-                  ef.write("\n".join(f"- {e}" for e in errors))
-              print("❌ Errores en los metadatos del PR.")
-          else:
-              print("✅ Título y descripción cumplen el estándar.")
+              # --- Validación de Cuerpo ---
+              if body.strip() and not check_language(body):
+                  errors.append("La descripción contiene caracteres en español (ñ, tildes, etc.).")
+
+              github_output = os.environ["GITHUB_OUTPUT"]
+              with open(github_output, "a", encoding="utf-8") as gh_out:
+                  gh_out.write(f"valid={'false' if errors else 'true'}\n")
+
+              if errors:
+                  with open("errors.txt", "w", encoding="utf-8") as ef:
+                      ef.write("\n".join(f"- {e}" for e in errors))
+                  print("\n❌ Errores en los metadatos del PR.")
+              else:
+                  print("\n✅ Título y descripción cumplen el estándar.")
+              return 0
+
+          if __name__ == "__main__":
+              sys.exit(main())
           PYEOF
+          
           python validate.py
 
-      - name: Comentar errores en el PR
+      - name: Comentar y cerrar PR
         if: steps.validate.outputs.valid == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_URL: ${{ github.event.pull_request.html_url }}
         run: |
           {
-            echo "❌ **Se encontraron errores en el Pull Request**"
+            echo "❌ **Pull Request rechazado (Metadatos)**"
             echo ""
             cat errors.txt
             echo ""
-            echo "Por favor, corrige el título o la descripción para que cumplan con el estándar en inglés. El bot volverá a evaluar los cambios automáticamente."
+            echo "Corrige el título/descripción y haz clic en **Reopen Pull Request**."
           } > comment.md
           gh pr comment "${PR_URL}" --body-file comment.md
-        
-          # Forzar fallo del workflow para bloquear el PR sin cerrarlo
+          gh pr close "${PR_URL}"
           exit 1

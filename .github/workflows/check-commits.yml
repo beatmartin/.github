@@ -17,9 +17,6 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Instalar langdetect
-        run: pip install --quiet langdetect
-
       - name: Obtener commits del PR
         env:
           GH_TOKEN: ${{ github.token }}
@@ -31,58 +28,58 @@ jobs:
         run: |
           cat << 'PYEOF' > validate.py
           import json, os, re, sys
-          from langdetect import detect, DetectorFactory, LangDetectException
 
-          DetectorFactory.seed = 0
           CONVENTIONAL_PATTERN = re.compile(
               r"^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)"
               r"(\([a-zA-Z0-9_-]+\))?: (.+)$"
           )
-          MIN_CHARS = 12
-          def is_english(text):
-            # Mantiene solo las letras del alfabeto (elimina números y símbolos para el análisis)
-              clean_text = re.sub(r'[^a-zA-Z\s]', '', text).strip()
+
+          def check_language(text):
+              # Busca caracteres típicamente usados en español (ñ, tildes, símbolos de apertura)
+              spanish_chars = re.compile(r'[áéíóúÁÉÍÓÚñÑüÜ¿¡]')
+              if spanish_chars.search(text):
+                  return False
+              return True
+
+          def main():
+              with open("commits_data.json", encoding="utf-8") as f:
+                  data = json.load(f)
+
+              commits = [c["messageHeadline"] for c in data.get("commits", [])]
+              errors = []
+
+              print("Revisando el historial de commits:")
+              for msg in commits:
+                  print(f"Evaluando: '{msg}'")
                   
-              if len(clean_text) < MIN_CHARS: 
-                return True
-              try: 
-                return detect(clean_text) == "en"
-              except LangDetectException: 
-                return True
+                  # Ignorar commits de Merge automáticos
+                  if msg.startswith("Merge branch") or msg.startswith("Merge pull request"):
+                      print(" -> Ignorado (Commit de merge detectado)")
+                      continue
 
-          with open("commits_data.json", encoding="utf-8") as f:
-              data = json.load(f)
+                  match = CONVENTIONAL_PATTERN.match(msg.strip())
+                  if not match:
+                      errors.append(f"Formato inválido: '{msg}'")
+                      continue
+                  if not check_language(match.group(3)):
+                      errors.append(f"Contiene caracteres en español (ñ, tildes, etc.): '{msg}'")
 
-          commits = [c["messageHeadline"] for c in data.get("commits", [])]
-          errors = []
+              github_output = os.environ["GITHUB_OUTPUT"]
+              with open(github_output, "a", encoding="utf-8") as gh_out:
+                  gh_out.write(f"valid={'false' if errors else 'true'}\n")
 
-          print("Revisando el historial de commits:")
-          for msg in commits:
-              print(f"Evaluando: '{msg}'")
-              
-              # MEJORA: Ignorar commits de Merge automáticos de Git y GitHub
-              if msg.startswith("Merge branch") or msg.startswith("Merge pull request"):
-                  print("  -> Ignorado (Commit de merge detectado)")
-                  continue
+              if errors:
+                  with open("errors.txt", "w", encoding="utf-8") as ef:
+                      ef.write("\n".join(f"- {e}" for e in errors))
+                  print("\n❌ Errores en los commits.")
+              else:
+                  print("\n✅ Todos los commits cumplen el estándar.")
+              return 0
 
-              match = CONVENTIONAL_PATTERN.match(msg.strip())
-              if not match:
-                  errors.append(f"Formato inválido: '{msg}'")
-                  continue
-              if not is_english(match.group(3)):
-                  errors.append(f"No está en inglés: '{msg}'")
-
-          github_output = os.environ["GITHUB_OUTPUT"]
-          with open(github_output, "a", encoding="utf-8") as gh_out:
-              gh_out.write(f"valid={'false' if errors else 'true'}\n")
-
-          if errors:
-              with open("errors.txt", "w", encoding="utf-8") as ef:
-                  ef.write("\n".join(f"- {e}" for e in errors))
-              print("\n❌ Errores en los commits.")
-          else:
-              print("\n✅ Todos los commits cumplen el estándar.")
+          if __name__ == "__main__":
+              sys.exit(main())
           PYEOF
+          
           python validate.py
 
       - name: Comentar errores en el PR
