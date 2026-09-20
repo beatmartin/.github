@@ -28,11 +28,11 @@ permissions:
   pull-requests: write
 
 jobs:
-  validate-pr:
+  check-pr-metadata:
     uses: beatmartin/.github/.github/workflows/check-pr-metadata.yml@main
 
-  validate-commits:
-    needs: validate-pr
+  check-commits:
+    needs: check-pr-metadata
     uses: beatmartin/.github/.github/workflows/check-commits.yml@main
 
 ```
