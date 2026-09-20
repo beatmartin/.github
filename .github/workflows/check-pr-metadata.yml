@@ -9,21 +9,21 @@ permissions:
 
 jobs:
   validate-pr:
-    name: Validar título y descripción del PR
+    name: Validate PR title and description
     runs-on: ubuntu-latest
     steps:
-      - name: Configurar Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Obtener metadatos del PR
+      - name: Fetch PR metadata
         env:
           GH_TOKEN: ${{ github.token }}
           PR_URL: ${{ github.event.pull_request.html_url }}
         run: gh pr view "${PR_URL}" --json title,body > pr_data.json
 
-      - name: Validar estructura e idioma
+      - name: Validate structure and language
         id: validate
         run: |
           cat << 'PYEOF' > validate.py
@@ -35,7 +35,7 @@ jobs:
           )
 
           def check_language(text):
-              # Busca caracteres típicamente usados en español (ñ, tildes, símbolos de apertura)
+              # Looks for characters typically used in Spanish
               spanish_chars = re.compile(r'[áéíóúÁÉÍÓÚñÑüÜ¿¡]')
               if spanish_chars.search(text):
                   return False
@@ -50,16 +50,16 @@ jobs:
 
               errors = []
 
-              # --- Validación de Título ---
+              # --- Title Validation ---
               match = CONVENTIONAL_PATTERN.match(title.strip())
               if not match:
-                  errors.append(f"El título del PR no sigue Conventional Commits: '{title}'")
+                  errors.append(f"PR title does not follow Conventional Commits: '{title}'")
               elif not check_language(match.group(3)):
-                  errors.append(f"El título contiene caracteres en español (ñ, tildes, etc.): '{title}'")
+                  errors.append(f"PR title contains Spanish characters (ñ, accents, etc.): '{title}'")
 
-              # --- Validación de Cuerpo ---
+              # --- Body Validation ---
               if body.strip() and not check_language(body):
-                  errors.append("La descripción contiene caracteres en español (ñ, tildes, etc.).")
+                  errors.append("PR description contains Spanish characters (ñ, accents, etc.).")
 
               github_output = os.environ["GITHUB_OUTPUT"]
               with open(github_output, "a", encoding="utf-8") as gh_out:
@@ -68,9 +68,9 @@ jobs:
               if errors:
                   with open("errors.txt", "w", encoding="utf-8") as ef:
                       ef.write("\n".join(f"- {e}" for e in errors))
-                  print("\n❌ Errores en los metadatos del PR.")
+                  print("\n[X] PR metadata errors found.")
               else:
-                  print("\n✅ Título y descripción cumplen el estándar.")
+                  print("\n[OK] Title and description meet the standard.")
               return 0
 
           if __name__ == "__main__":
@@ -79,18 +79,24 @@ jobs:
           
           python validate.py
 
-      - name: Comentar y cerrar PR
+      - name: Comment and close PR
         if: steps.validate.outputs.valid == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_URL: ${{ github.event.pull_request.html_url }}
         run: |
           {
-            echo "❌ **Pull Request rechazado (Metadatos)**"
+            echo "### [X] Pull Request Rejected (Metadata)"
             echo ""
+            echo "The following issues were found with the Pull Request metadata:"
             cat errors.txt
             echo ""
-            echo "Corrige el título/descripción y haz clic en **Reopen Pull Request**."
+            echo "---"
+            echo "### [i] How to fix this:"
+            echo "1. Click the **Edit** button at the top right of the Pull Request title or description."
+            echo "2. Ensure the title follows the format: \`type(optional-scope): description in english\`."
+            echo "3. Ensure both the title and body do not contain characters exclusive to Spanish (á, é, í, ó, ú, ñ)."
+            echo "4. Once corrected, click **Reopen Pull Request** at the bottom of the page."
           } > comment.md
           gh pr comment "${PR_URL}" --body-file comment.md
           gh pr close "${PR_URL}"

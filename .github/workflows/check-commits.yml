@@ -9,21 +9,21 @@ permissions:
 
 jobs:
   validate-commits:
-    name: Validar historial de commits
+    name: Validate commit history
     runs-on: ubuntu-latest
     steps:
-      - name: Configurar Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Obtener commits del PR
+      - name: Fetch PR commits
         env:
           GH_TOKEN: ${{ github.token }}
           PR_URL: ${{ github.event.pull_request.html_url }}
         run: gh pr view "${PR_URL}" --json commits > commits_data.json
 
-      - name: Validar commits
+      - name: Validate commits
         id: validate
         run: |
           cat << 'PYEOF' > validate.py
@@ -35,7 +35,7 @@ jobs:
           )
 
           def check_language(text):
-              # Busca caracteres típicamente usados en español (ñ, tildes, símbolos de apertura)
+              # Looks for characters typically used in Spanish
               spanish_chars = re.compile(r'[áéíóúÁÉÍÓÚñÑüÜ¿¡]')
               if spanish_chars.search(text):
                   return False
@@ -48,21 +48,21 @@ jobs:
               commits = [c["messageHeadline"] for c in data.get("commits", [])]
               errors = []
 
-              print("Revisando el historial de commits:")
+              print("Reviewing commit history:")
               for msg in commits:
-                  print(f"Evaluando: '{msg}'")
+                  print(f"Evaluating: '{msg}'")
                   
-                  # Ignorar commits de Merge automáticos
+                  # Ignore automatic merge commits
                   if msg.startswith("Merge branch") or msg.startswith("Merge pull request"):
-                      print(" -> Ignorado (Commit de merge detectado)")
+                      print(" -> Ignored (Merge commit detected)")
                       continue
 
                   match = CONVENTIONAL_PATTERN.match(msg.strip())
                   if not match:
-                      errors.append(f"Formato inválido: '{msg}'")
+                      errors.append(f"Invalid format: '{msg}'")
                       continue
                   if not check_language(match.group(3)):
-                      errors.append(f"Contiene caracteres en español (ñ, tildes, etc.): '{msg}'")
+                      errors.append(f"Contains Spanish characters (ñ, accents, etc.): '{msg}'")
 
               github_output = os.environ["GITHUB_OUTPUT"]
               with open(github_output, "a", encoding="utf-8") as gh_out:
@@ -71,9 +71,9 @@ jobs:
               if errors:
                   with open("errors.txt", "w", encoding="utf-8") as ef:
                       ef.write("\n".join(f"- {e}" for e in errors))
-                  print("\n❌ Errores en los commits.")
+                  print("\n[X] Commit errors found.")
               else:
-                  print("\n✅ Todos los commits cumplen el estándar.")
+                  print("\n[OK] All commits meet the standard.")
               return 0
 
           if __name__ == "__main__":
@@ -82,20 +82,31 @@ jobs:
           
           python validate.py
 
-      - name: Comentar errores en el PR
+      - name: Comment errors on PR
         if: steps.validate.outputs.valid == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_URL: ${{ github.event.pull_request.html_url }}
         run: |
           {
-            echo "❌ **Se encontraron errores en el Pull Request**"
+            echo "### [X] Pull Request Errors Found"
             echo ""
+            echo "The following commits do not meet the project standards:"
             cat errors.txt
             echo ""
-            echo "Por favor, corrige el título o la descripción para que cumplan con el estándar en inglés. El bot volverá a evaluar los cambios automáticamente."
+            echo "---"
+            echo "### [i] How to fix your commits:"
+            echo "1. If you only need to fix the **latest commit**, run:"
+            echo "   \`git commit --amend\`"
+            echo "2. If you need to fix **older or multiple commits**, use interactive rebase:"
+            echo "   \`git rebase -i HEAD~N\` *(replace N with the number of commits to check)*"
+            echo "   Change \`pick\` to \`reword\` (or \`r\`) for the commits you want to rename."
+            echo "3. Once your local history is fixed, force push the changes to update this PR:"
+            echo "   \`git push --force\`"
+            echo ""
+            echo "*Note: The bot will automatically re-evaluate your PR after the push.*"
           } > comment.md
           gh pr comment "${PR_URL}" --body-file comment.md
         
-          # Forzar fallo del workflow para bloquear el PR sin cerrarlo
+          # Force workflow failure to block PR without closing it
           exit 1
