@@ -50,19 +50,20 @@ jobs:
 
               print("Reviewing commit history:")
               for msg in commits:
-                  print(f"Evaluating: '{msg}'")
+                  clean_msg = msg.strip()
+                  print(f"Evaluating: '{clean_msg}'")
                   
                   # Ignore automatic merge commits
-                  if msg.startswith("Merge branch") or msg.startswith("Merge pull request"):
+                  if clean_msg.startswith("Merge "):
                       print(" -> Ignored (Merge commit detected)")
                       continue
 
-                  match = CONVENTIONAL_PATTERN.match(msg.strip())
+                  match = CONVENTIONAL_PATTERN.match(clean_msg)
                   if not match:
-                      errors.append(f"Invalid format: '{msg}'")
+                      errors.append(f"Invalid format: '{clean_msg}'")
                       continue
                   if not check_language(match.group(3)):
-                      errors.append(f"Contains Spanish characters (ñ, accents, etc.): '{msg}'")
+                      errors.append(f"Contains Spanish characters (ñ, accents, etc.): '{clean_msg}'")
 
               github_output = os.environ["GITHUB_OUTPUT"]
               with open(github_output, "a", encoding="utf-8") as gh_out:
